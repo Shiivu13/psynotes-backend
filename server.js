@@ -6,7 +6,10 @@ const xss = require('xss-clean');
 const hpp = require('hpp');
 const rateLimit = require('express-rate-limit');
 require('dotenv').config();
-
+const {PrismaClient} = require('@prisma/client');
+const prisma = new PrismaClient({
+    log: ['error','warn'],
+}];
 const app = express();
 
 // Middleware
