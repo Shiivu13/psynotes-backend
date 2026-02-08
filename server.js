@@ -1,6 +1,5 @@
 const express = require('express');
 const cors = require('cors');
-const mongoSanitize = require('express-mongo-sanitize');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const xss = require('xss-clean');
@@ -17,7 +16,6 @@ app.use(helmet());
 app.use(morgan('dev'));
 
 // Sanitize data (NoSQL Injection)
-app.use(mongoSanitize());
 
 // Prevent XSS attacks
 app.use(xss());
