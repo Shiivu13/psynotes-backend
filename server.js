@@ -7,8 +7,14 @@ const hpp = require('hpp');
 const rateLimit = require('express-rate-limit');
 require('dotenv').config();
 const { PrismaClient } = require('@prisma/client');
+const { PrismaPg } = require('@prisma/adapter-pg');
+const { Pool } = require('pg');
+
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({
-    log: ['error', 'warn'],
+    adapter,
+    log: ['error', 'warn']
 });
 const app = express();
 
