@@ -1,9 +1,7 @@
 const express = require('express');
-const mongoose = require('mongoose');
 const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
-const mongoSanitize = require('express-mongo-sanitize');
 const xss = require('xss-clean');
 const hpp = require('hpp');
 const rateLimit = require('express-rate-limit');
@@ -34,10 +32,16 @@ const limiter = rateLimit({
 });
 app.use('/api', limiter);
 
+const { PrismaClient } = require('@prisma/client');
+const prisma = new PrismaClient();
+
 // Database Connection
-mongoose.connect(process.env.MONGO_URI)
-    .then(() => console.log('MongoDB Connected'))
-    .catch(err => console.error('MongoDB Connection Error:', err));
+prisma.$connect()
+    .then(() => console.log('PostgreSQL Connected via Prisma'))
+    .catch(err => {
+        console.error('Prisma Connection Error:', err);
+        process.exit(1);
+    });
 
 // Routes
 app.use('/api/auth', require('./routes/authRoutes'));

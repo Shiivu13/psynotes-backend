@@ -1,5 +1,5 @@
-const Quiz = require('../models/Quiz');
-const QuizResult = require('../models/QuizResult');
+const { PrismaClient } = require('@prisma/client');
+const prisma = new PrismaClient();
 
 // @desc    Create a quiz
 // @route   POST /api/quizzes
@@ -8,10 +8,24 @@ const createQuiz = async (req, res) => {
     const { title, description, questions } = req.body;
 
     try {
-        const quiz = await Quiz.create({
-            title,
-            description,
-            questions,
+        // questions should be an array of objects { questionText, options, correctAnswer }
+        const formattedQuestions = questions.map(q => ({
+            questionText: q.questionText,
+            options: q.options,
+            correctAnswer: q.correctAnswer
+        }));
+
+        const quiz = await prisma.quiz.create({
+            data: {
+                title,
+                description,
+                questions: {
+                    create: formattedQuestions
+                }
+            },
+            include: {
+                questions: true
+            }
         });
 
         res.status(201).json(quiz);
@@ -25,7 +39,12 @@ const createQuiz = async (req, res) => {
 // @access  Public
 const getQuizzes = async (req, res) => {
     try {
-        const quizzes = await Quiz.find({}).sort({ createdAt: -1 });
+        const quizzes = await prisma.quiz.findMany({
+            orderBy: { createdAt: 'desc' },
+            include: {
+                questions: true // Optional: include questions in list view? Maybe just count?
+            }
+        });
         res.json(quizzes);
     } catch (error) {
         res.status(500).json({ message: error.message });
@@ -37,7 +56,12 @@ const getQuizzes = async (req, res) => {
 // @access  Public
 const getQuizById = async (req, res) => {
     try {
-        const quiz = await Quiz.findById(req.params.id);
+        const quiz = await prisma.quiz.findUnique({
+            where: { id: req.params.id },
+            include: {
+                questions: true
+            }
+        });
 
         if (quiz) {
             res.json(quiz);
@@ -53,15 +77,13 @@ const getQuizById = async (req, res) => {
 // @route   POST /api/quizzes/:id/submit
 // @access  Private
 const submitQuiz = async (req, res) => {
-    const { answers } = req.body; // Array of { questionId, answer } or just index?
-    // Let's assume an array of answers corresponding to questions index or map.
-    // Actually simpler: { questionId: answer } map?
-    // Let's assume input is: { answers: { [questionId]: "answer" } } 
-    // OR simpler for MVP: Array of answers matching question order? No, risky.
-    // Let's go with: body.answers = { questionId: selectedOption }
+    const { answers } = req.body;
 
     try {
-        const quiz = await Quiz.findById(req.params.id);
+        const quiz = await prisma.quiz.findUnique({
+            where: { id: req.params.id },
+            include: { questions: true }
+        });
 
         if (!quiz) {
             return res.status(404).json({ message: 'Quiz not found' });
@@ -71,17 +93,19 @@ const submitQuiz = async (req, res) => {
         const totalQuestions = quiz.questions.length;
 
         quiz.questions.forEach((question) => {
-            const userAnswer = answers[question._id];
+            const userAnswer = answers[question.id];
             if (userAnswer === question.correctAnswer) {
                 score++;
             }
         });
 
-        const result = await QuizResult.create({
-            user: req.user.id,
-            quiz: quiz._id,
-            score,
-            totalQuestions,
+        const result = await prisma.quizResult.create({
+            data: {
+                userId: req.user.id,
+                quizId: quiz.id,
+                score,
+                totalQuestions,
+            }
         });
 
         res.status(201).json(result);
@@ -95,9 +119,15 @@ const submitQuiz = async (req, res) => {
 // @access  Private
 const getUserResults = async (req, res) => {
     try {
-        const results = await QuizResult.find({ user: req.user.id })
-            .populate('quiz', 'title')
-            .sort({ createdAt: -1 });
+        const results = await prisma.quizResult.findMany({
+            where: { userId: req.user.id },
+            include: {
+                quiz: {
+                    select: { title: true }
+                }
+            },
+            orderBy: { createdAt: 'desc' }
+        });
         res.json(results);
     } catch (error) {
         res.status(500).json({ message: error.message });
@@ -109,10 +139,14 @@ const getUserResults = async (req, res) => {
 // @access  Private/Admin
 const deleteQuiz = async (req, res) => {
     try {
-        const quiz = await Quiz.findById(req.params.id);
+        const quiz = await prisma.quiz.findUnique({
+            where: { id: req.params.id }
+        });
 
         if (quiz) {
-            await quiz.deleteOne();
+            await prisma.quiz.delete({
+                where: { id: req.params.id }
+            });
             res.json({ message: 'Quiz removed' });
         } else {
             res.status(404).json({ message: 'Quiz not found' });
@@ -129,14 +163,35 @@ const updateQuiz = async (req, res) => {
     const { title, description, questions } = req.body;
 
     try {
-        const quiz = await Quiz.findById(req.params.id);
+        const quiz = await prisma.quiz.findUnique({
+            where: { id: req.params.id }
+        });
 
         if (quiz) {
-            quiz.title = title || quiz.title;
-            quiz.description = description || quiz.description;
-            quiz.questions = questions || quiz.questions;
+            // For updates, the simplest strategy for questions is replace all:
+            // 1. Delete all existing questions for this quiz
+            // 2. Create new ones
+            // Note: Use transaction for safety used to be best, but nested update is easier.
 
-            const updatedQuiz = await quiz.save();
+            const formattedQuestions = questions ? questions.map(q => ({
+                questionText: q.questionText,
+                options: q.options,
+                correctAnswer: q.correctAnswer
+            })) : [];
+
+            const updatedQuiz = await prisma.quiz.update({
+                where: { id: req.params.id },
+                data: {
+                    title: title || quiz.title,
+                    description: description || quiz.description,
+                    questions: questions ? {
+                        deleteMany: {},
+                        create: formattedQuestions
+                    } : undefined
+                },
+                include: { questions: true }
+            });
+
             res.json(updatedQuiz);
         } else {
             res.status(404).json({ message: 'Quiz not found' });
@@ -151,7 +206,9 @@ const updateQuiz = async (req, res) => {
 // @access  Private
 const resetQuizHistory = async (req, res) => {
     try {
-        await QuizResult.deleteMany({ user: req.user.id });
+        await prisma.quizResult.deleteMany({
+            where: { userId: req.user.id }
+        });
         res.json({ message: 'Quiz history reset successfully' });
     } catch (error) {
         res.status(500).json({ message: error.message });

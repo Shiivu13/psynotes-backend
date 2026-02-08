@@ -1,4 +1,5 @@
-const Blog = require('../models/Blog');
+const { PrismaClient } = require('@prisma/client');
+const prisma = new PrismaClient();
 
 // @desc    Create a blog
 // @route   POST /api/blogs
@@ -7,12 +8,14 @@ const createBlog = async (req, res) => {
     const { title, content, image, category } = req.body;
 
     try {
-        const blog = await Blog.create({
-            title,
-            content,
-            image,
-            category,
-            author: req.user.id,
+        const blog = await prisma.blog.create({
+            data: {
+                title,
+                content,
+                image,
+                categoryId: category,
+                authorId: req.user.id,
+            },
         });
 
         res.status(201).json(blog);
@@ -28,15 +31,23 @@ const getBlogs = async (req, res) => {
     const { category } = req.query;
 
     try {
-        let query = {};
+        const where = {};
         if (category) {
-            query.category = category;
+            where.categoryId = category;
         }
 
-        const blogs = await Blog.find(query)
-            .populate('category', 'name slug')
-            .populate('author', 'username')
-            .sort({ createdAt: -1 });
+        const blogs = await prisma.blog.findMany({
+            where,
+            include: {
+                category: {
+                    select: { name: true, slug: true }
+                },
+                author: {
+                    select: { username: true }
+                }
+            },
+            orderBy: { createdAt: 'desc' },
+        });
 
         res.json(blogs);
     } catch (error) {
@@ -49,9 +60,17 @@ const getBlogs = async (req, res) => {
 // @access  Public
 const getBlogById = async (req, res) => {
     try {
-        const blog = await Blog.findById(req.params.id)
-            .populate('category', 'name slug')
-            .populate('author', 'username');
+        const blog = await prisma.blog.findUnique({
+            where: { id: req.params.id },
+            include: {
+                category: {
+                    select: { name: true, slug: true }
+                },
+                author: {
+                    select: { username: true }
+                }
+            },
+        });
 
         if (blog) {
             res.json(blog);
@@ -70,15 +89,20 @@ const updateBlog = async (req, res) => {
     const { title, content, image, category } = req.body;
 
     try {
-        const blog = await Blog.findById(req.params.id);
+        const blog = await prisma.blog.findUnique({
+            where: { id: req.params.id },
+        });
 
         if (blog) {
-            blog.title = title || blog.title;
-            blog.content = content || blog.content;
-            blog.image = image || blog.image;
-            blog.category = category || blog.category;
-
-            const updatedBlog = await blog.save();
+            const updatedBlog = await prisma.blog.update({
+                where: { id: req.params.id },
+                data: {
+                    title: title || blog.title,
+                    content: content || blog.content,
+                    image: image || blog.image,
+                    categoryId: category || blog.categoryId,
+                },
+            });
             res.json(updatedBlog);
         } else {
             res.status(404).json({ message: 'Blog not found' });
@@ -93,10 +117,14 @@ const updateBlog = async (req, res) => {
 // @access  Private/Admin
 const deleteBlog = async (req, res) => {
     try {
-        const blog = await Blog.findById(req.params.id);
+        const blog = await prisma.blog.findUnique({
+            where: { id: req.params.id },
+        });
 
         if (blog) {
-            await blog.deleteOne();
+            await prisma.blog.delete({
+                where: { id: req.params.id },
+            });
             res.json({ message: 'Blog removed' });
         } else {
             res.status(404).json({ message: 'Blog not found' });

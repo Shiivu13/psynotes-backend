@@ -1,4 +1,5 @@
-const Note = require('../models/Note');
+const { PrismaClient } = require('@prisma/client');
+const prisma = new PrismaClient();
 
 // @desc    Create a note
 // @route   POST /api/notes
@@ -7,10 +8,12 @@ const createNote = async (req, res) => {
     const { title, content } = req.body;
 
     try {
-        const note = await Note.create({
-            title,
-            content,
-            user: req.user.id,
+        const note = await prisma.note.create({
+            data: {
+                title,
+                content,
+                userId: req.user.id,
+            },
         });
 
         res.status(201).json(note);
@@ -24,7 +27,10 @@ const createNote = async (req, res) => {
 // @access  Private
 const getNotes = async (req, res) => {
     try {
-        const notes = await Note.find({ user: req.user.id }).sort({ createdAt: -1 });
+        const notes = await prisma.note.findMany({
+            where: { userId: req.user.id },
+            orderBy: { createdAt: 'desc' },
+        });
         res.json(notes);
     } catch (error) {
         res.status(500).json({ message: error.message });
@@ -38,21 +44,27 @@ const updateNote = async (req, res) => {
     const { title, content } = req.body;
 
     try {
-        const note = await Note.findById(req.params.id);
+        const note = await prisma.note.findUnique({
+            where: { id: req.params.id },
+        });
 
         if (!note) {
             return res.status(404).json({ message: 'Note not found' });
         }
 
         // Check for user
-        if (note.user.toString() !== req.user.id) {
+        if (note.userId !== req.user.id) {
             return res.status(401).json({ message: 'User not authorized' });
         }
 
-        note.title = title || note.title;
-        note.content = content || note.content;
+        const updatedNote = await prisma.note.update({
+            where: { id: req.params.id },
+            data: {
+                title: title || note.title,
+                content: content || note.content,
+            },
+        });
 
-        const updatedNote = await note.save();
         res.json(updatedNote);
     } catch (error) {
         res.status(500).json({ message: error.message });
@@ -64,18 +76,23 @@ const updateNote = async (req, res) => {
 // @access  Private
 const deleteNote = async (req, res) => {
     try {
-        const note = await Note.findById(req.params.id);
+        const note = await prisma.note.findUnique({
+            where: { id: req.params.id },
+        });
 
         if (!note) {
             return res.status(404).json({ message: 'Note not found' });
         }
 
         // Check for user
-        if (note.user.toString() !== req.user.id) {
+        if (note.userId !== req.user.id) {
             return res.status(401).json({ message: 'User not authorized' });
         }
 
-        await note.deleteOne();
+        await prisma.note.delete({
+            where: { id: req.params.id },
+        });
+
         res.json({ message: 'Note removed' });
     } catch (error) {
         res.status(500).json({ message: error.message });
@@ -87,7 +104,14 @@ const deleteNote = async (req, res) => {
 // @access  Private/Admin
 const getAllNotes = async (req, res) => {
     try {
-        const notes = await Note.find({}).populate('user', 'username email').sort({ createdAt: -1 });
+        const notes = await prisma.note.findMany({
+            include: {
+                user: {
+                    select: { username: true, email: true }
+                }
+            },
+            orderBy: { createdAt: 'desc' },
+        });
         res.json(notes);
     } catch (error) {
         res.status(500).json({ message: error.message });

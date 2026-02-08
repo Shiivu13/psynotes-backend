@@ -1,4 +1,6 @@
-const Category = require('../models/Category');
+const { PrismaClient } = require('@prisma/client');
+const prisma = new PrismaClient();
+const slugify = require('slugify');
 
 // @desc    Create a category
 // @route   POST /api/categories
@@ -7,14 +9,18 @@ const createCategory = async (req, res) => {
     const { name } = req.body;
 
     try {
-        const categoryExists = await Category.findOne({ name });
+        const categoryExists = await prisma.category.findUnique({
+            where: { name },
+        });
 
         if (categoryExists) {
             return res.status(400).json({ message: 'Category already exists' });
         }
 
-        const slug = name.toLowerCase().replace(/ /g, '-');
-        const category = await Category.create({ name, slug });
+        const slug = slugify(name, { lower: true });
+        const category = await prisma.category.create({
+            data: { name, slug },
+        });
 
         res.status(201).json(category);
     } catch (error) {
@@ -27,7 +33,9 @@ const createCategory = async (req, res) => {
 // @access  Public
 const getCategories = async (req, res) => {
     try {
-        const categories = await Category.find({});
+        const categories = await prisma.category.findMany({
+            orderBy: { name: 'asc' },
+        });
         res.json(categories);
     } catch (error) {
         res.status(500).json({ message: error.message });
@@ -41,15 +49,20 @@ const updateCategory = async (req, res) => {
     const { name } = req.body;
 
     try {
-        const category = await Category.findById(req.params.id);
+        const category = await prisma.category.findUnique({
+            where: { id: req.params.id },
+        });
 
         if (category) {
-            category.name = name || category.name;
+            const data = { name: name || category.name };
             if (name) {
-                category.slug = name.toLowerCase().replace(/ /g, '-');
+                data.slug = slugify(name, { lower: true });
             }
 
-            const updatedCategory = await category.save();
+            const updatedCategory = await prisma.category.update({
+                where: { id: req.params.id },
+                data,
+            });
             res.json(updatedCategory);
         } else {
             res.status(404).json({ message: 'Category not found' });
@@ -64,10 +77,14 @@ const updateCategory = async (req, res) => {
 // @access  Private/Admin
 const deleteCategory = async (req, res) => {
     try {
-        const category = await Category.findById(req.params.id);
+        const category = await prisma.category.findUnique({
+            where: { id: req.params.id },
+        });
 
         if (category) {
-            await category.deleteOne();
+            await prisma.category.delete({
+                where: { id: req.params.id },
+            });
             res.json({ message: 'Category removed' });
         } else {
             res.status(404).json({ message: 'Category not found' });
