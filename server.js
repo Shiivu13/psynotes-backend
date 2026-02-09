@@ -12,6 +12,9 @@ const { Pool } = require('pg');
 const prisma = require('./utils/prismaClient');
 const app = express();
 
+// Trust Proxy for Render
+app.set('trust proxy', 1);
+
 // Middleware
 app.use(express.json());
 app.use(cors());
